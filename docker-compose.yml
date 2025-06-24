@@ -1,0 +1,111 @@
+services:
+  spark-master:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    container_name: ${CONTAINER_PREFIX:-spark-dev}-master
+    hostname: ${CONTAINER_PREFIX:-spark-dev}-master
+    env_file:
+      - .env
+    ports:
+      # Spark Master Web UI
+      - "${SPARK_MASTER_UI_PORT:-8080}:8080"
+      # Spark Application Web UI
+      - "${SPARK_APP_UI_PORT:-4040}:4040"
+      # Spark Master port (for cluster communication)
+      - "${SPARK_MASTER_PORT:-7077}:7077"
+    environment:
+      - SPARK_HOME=/opt/spark
+      - JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64
+      - PYSPARK_PYTHON=/usr/bin/python3
+      - PYSPARK_DRIVER_PYTHON=/usr/bin/python3
+      - SPARK_MASTER_URL=spark://${CONTAINER_PREFIX:-spark-dev}-master:7077
+      - SPARK_WORKER_MEMORY=${SPARK_WORKER_MEMORY:-2g}
+      - SPARK_WORKER_CORES=${SPARK_WORKER_CORES:-2}
+      - SPARK_DRIVER_MEMORY=${SPARK_DRIVER_MEMORY:-1g}
+      - SPARK_EXECUTOR_MEMORY=${SPARK_EXECUTOR_MEMORY:-1g}
+      - SPARK_MODE=master
+      - SPARK_LOG_LEVEL=${SPARK_LOG_LEVEL:-INFO}
+    volumes:
+      # Mount development directories for local IDE integration
+      - ./src:/opt/spark/work-dir/src
+      - ./data:/opt/spark/work-dir/data
+      - ./notebooks:/opt/spark/work-dir/notebooks
+    restart: unless-stopped
+    stdin_open: true
+    tty: true
+    networks:
+      - spark-network
+
+  spark-worker:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    env_file:
+      - .env
+    ports:
+      # Expose the Spark Worker Web UI port.
+      # Docker will map container port 8081 to a random, available port on the host.
+      - "8081"
+    environment:
+      - SPARK_HOME=/opt/spark
+      - JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64
+      - PYSPARK_PYTHON=/usr/bin/python3
+      - PYSPARK_DRIVER_PYTHON=/usr/bin/python3
+      - SPARK_MASTER_URL=spark://${CONTAINER_PREFIX:-spark-dev}-master:7077
+      - SPARK_WORKER_MEMORY=${SPARK_WORKER_MEMORY:-2g}
+      - SPARK_WORKER_CORES=${SPARK_WORKER_CORES:-2}
+      - SPARK_DRIVER_MEMORY=${SPARK_DRIVER_MEMORY:-1g}
+      - SPARK_EXECUTOR_MEMORY=${SPARK_EXECUTOR_MEMORY:-1g}
+      - SPARK_MODE=worker
+      - SPARK_LOG_LEVEL=${SPARK_LOG_LEVEL:-INFO}
+    volumes:
+      - ./src:/opt/spark/work-dir/src
+      - ./data:/opt/spark/work-dir/data
+      - ./notebooks:/opt/spark/work-dir/notebooks
+    depends_on:
+      - spark-master
+    restart: unless-stopped
+    stdin_open: true
+    tty: true
+    networks:
+      - spark-network
+
+  jupyter-lab:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    container_name: ${CONTAINER_PREFIX:-spark-dev}-jupyter
+    hostname: jupyter-lab
+    ports:
+      - "${JUPYTER_PORT:-8888}:8888"
+    volumes:
+      - ./src:/opt/spark/work-dir/src
+      - ./data:/opt/spark/work-dir/data
+      - ./notebooks:/opt/spark/work-dir/notebooks
+    networks:
+      - spark-network
+    depends_on:
+      - spark-master
+    environment:
+      # --- Add this line ---
+      - SPARK_MODE=jupyter
+      # ---------------------
+      - SPARK_HOME=/opt/spark
+      - JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64
+      - SPARK_MASTER_URL=spark://${CONTAINER_PREFIX:-spark-dev}-master:7077
+      - PYSPARK_PYTHON=/usr/bin/python3
+    command: >
+      jupyter lab
+      --ip=0.0.0.0
+      --port=8888
+      --no-browser
+      --allow-root
+      --notebook-dir=/opt/spark/work-dir/notebooks
+      --NotebookApp.token=''
+      --NotebookApp.password=''
+
+networks:
+  spark-network:
+    driver: bridge
+    name: ${NETWORK_NAME:-spark-network}
